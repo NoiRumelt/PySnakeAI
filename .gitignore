@@ -1,0 +1,9 @@
+# Ignore some pycharm files
+
+__pycache__
+
+.idea
+
+test.py
+
+/venv
