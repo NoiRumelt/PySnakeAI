@@ -1,6 +1,6 @@
 from PIL import Image
 import pygame
-from Assets import block_s
+from Assets_AI import block_s
 
 ''' Init the images relevent'''
 all = Image.open('assets/snakeset.png')

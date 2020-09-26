@@ -2,7 +2,7 @@ from PIL import Image
 import numpy as np
 import sys
 import pygame as pg
-from Assets import *
+from Assets_AI import *
 from random import choices, randrange
 '''PyGame Init'''
 pg.init()
@@ -12,16 +12,18 @@ game_font = pg.font.Font('04B_19.ttf',40)
 STEPEVENT = pg.USEREVENT
 pg.time.set_timer(STEPEVENT, SPEED)
 
-from Images import *
+from Images_AI import *
 
-class Snake():
-    def __init__(self, row,col):
+
+class Snake:
+
+    def __init__(self, row, col):
         self.Pos = [np.array([row // 2, col // 2]), np.array([row // 2 + 1, col // 2])]
-        self.Direction = np.array([-1,0]) # The options are: 'u' - Up, 'd' - Down, 'l' - Left, 'r' - Right
+        self.Direction = np.array([-1,0])   # The options are: 'u' - Up, 'd' - Down, 'l' - Left, 'r' - Right
         self.Direction_char = 'u'
         self.Direction_wait = 'u'
         self.length = 2
-        self.Dir_tra = {'u':np.array([-1,0]), 'l':np.array([0,-1]), 'd':np.array([1,0]), 'r':np.array([0,1])}
+        self.Dir_tra = {'u': np.array([-1, 0]), 'l': np.array([0, -1]), 'd': np.array([1, 0]), 'r': np.array([0, 1])}
 
     def __repr__(self):
         return self.Pos, self.Direction
@@ -42,7 +44,7 @@ class Snake():
                 if self.Col_W_Self(): return False, False
                 self.Pos[part] += self.Direction
                 self.Direction_char = self.Direction_wait
-                if (self.Pos[part] == Apple_pos).all(): Ate = True #Ate the Apple?
+                if (self.Pos[part] == Apple_pos).all(): Ate = True # Ate the Apple?
             else:
                 save = self.Pos[part].copy()
                 self.Pos[part] = temp
@@ -78,10 +80,6 @@ class Snake():
             if self.Direction_char == 'l': return 22
             if self.Direction_char == 'r': return 23
         elif part == self.length - 1:
-            #print("0 pos: " + str(self.Pos[0]))
-            #print("1 pos: " + str(self.Pos[1]))
-
-            #print("0 + left pos: " + str(self.Pos[0] + self.Dir_tra['r']))
             if (self.Pos[part] == (self.Pos[part - 1] + self.Dir_tra['u'])).all(): return 31
             if (self.Pos[part] == (self.Pos[part - 1] + self.Dir_tra['d'])).all(): return 30
             if (self.Pos[part] == (self.Pos[part - 1] + self.Dir_tra['l'])).all(): return 33
@@ -121,37 +119,31 @@ class Snake():
                 self.Direction = self.Dir_tra['r']
                 self.Direction_wait = 'r'
 
-
-class Apple:
+class Apple():
     # Defining the Apple, Position
     def __init__(self, columns, rows, snake_pos):
-        # Creating the apple, choosing a position for the apple on the board not
-        # outside the borders and not on the snake.
+        # Creating the apple, choosing a position for the apple on the board not outside the borders and not on the snake.
         while True:
             exist = False
             rndPos = np.array([randrange(0, rows - 1), randrange(0, columns - 1)])
             for part in snake_pos:
                 if (rndPos == part).all():
-                    '''print ("yes")
-                    print(rndPos)'''
                     exist = True
             if exist:
                 continue
             break
-        #print(" Placed in: " + str(rndPos))
         self.Pos = rndPos
 
     def get_pos(self):
         return self.Pos[0], self.Pos[1]
-
 
 class Board:
     def __init__(self, dim):
         # Creating a 2D array represent the snake and the apple
         self.rows, self.columns = dim
         self.board_array = np.full((self.rows, self.columns), 0)
-        self.apple = None
         self.E_snake = Snake(self.rows, self.columns)
+        self.apple = Apple(self.columns, self.rows, self.E_snake.Pos)
 
     def get_board_array(self):
         # returning a 2D numpy array which illustrate the current condition of the board: snake, apples, etc...
@@ -165,15 +157,13 @@ class Board:
         '''Handle the snake'''
         self.board_array = np.full((self.rows, self.columns), 0)
         for part in range(0, len(self.E_snake)):
-            '''print ("part:" + str(part))
-            print("part identity:" + str(self.E_snake.get_part_identity(part)))
-            print("part position:" + str(self.E_snake.get_pos_part(part)))'''
             self.board_array[self.E_snake.get_pos_part(part)] = self.E_snake.get_part_identity(part)
 
         if self.apple != None: # Writes 1 on the board on the position of the apple
             self.board_array[self.apple.get_pos()] = 1
-    def step(self, Apple):
-        return self.E_snake.step(Apple)
+
+    def step(self, apple):
+        return self.E_snake.step(apple)
 
     def C_dir(self, dir):
         self.E_snake.C_dir(dir)
@@ -189,17 +179,34 @@ class Board:
         return self.apple.get_pos()
 
 def Draw_Board(board_local):
-    # Updating the board on PyGame
+    # Returns Pygame surface representing the specific board
     board_surface = pg.Surface(((b_width * block_s), (b_height * block_s)), pg.SRCALPHA).convert_alpha()
     for c in range(0, b_width):
         for r in range(0, b_height):
             x_o = c * block_s
             y_o = r * block_s
             if board_local[r,c] != 0:
-                #print ("HI" + str(board_local[x,y]))
                 image = Snake_images[int(convert_images[str(board_local[r,c])])]
                 board_surface.blit(image, (x_o, y_o))
     return board_surface
+
+def Draw_Gen_Board(gen_board):
+    # input: Generation Board
+    # output: surface to print on the screen
+    gen_board_surface = pg.Surface(((b_width * block_s * gen_width) + (gen_width - 1) * 5,
+                                 (b_height * block_s * gen_height) + (gen_height - 1) * 5), pg.SRCALPHA).convert_alpha()
+    x_o, y_o = 0, 0
+    for x in range(0, gen_width):
+        y_o = 0
+        for y in range(0, gen_height):
+            gen_board_surface.blit(Draw_Board(gen_board.boards[x, y].get_board_array()), (x_o,y_o))
+            y_o = y_o + b_height * block_s
+            y_o += 5
+        x_o = x_o + b_width * block_s
+        if x < gen_width - 1:
+            x_o += 5
+    return gen_board_surface
+
 
 def Create_BG(images,ratios):
     # Gets dimensions with tuple, list of background pictures and ratios.
@@ -213,137 +220,83 @@ def Create_BG(images,ratios):
             bg_surface.blit(choice[0], (x_o,y_o))
     return bg_surface
 
+def Create_Gen_Background(backgroundSurface):
+    # output: surface of the background surface of all of the board
+    gen_bg_surface = pg.Surface(((b_width * block_s * gen_width) + (gen_width - 1) * 5, (b_height * block_s * gen_height) + (gen_height - 1) * 5)).convert_alpha()
+    x_o, y_o = 0, 0
+    for x in range(0, gen_width):
+        y_o = 0
+        for y in range(0, gen_height):
+            gen_bg_surface.blit(backgroundSurface, (x_o,y_o))
+            y_o = y_o + b_height * block_s
+            y_o += 5
+        x_o = x_o + b_width * block_s
+        if x < gen_width - 1:
+            x_o += 5
+    return gen_bg_surface
+
 def QUIT_snake():
     pg.quit()
     sys.exit()
 
-def show_menu(hover_start, hover_AI, hover_exit):
-    global start_rect, AI_rect, exit_rect
-    welcome_surface = game_font.render('Welcome to PySnakeAI',True,(255,255,255))
-    welcome_rect = welcome_surface.get_rect(center = (pixel_width // 2,pixel_height // 4))
-    screen.blit(welcome_surface, welcome_rect)
-    start_surface = game_font.render('Single Player Start', True, hovers)
-    start_rect = start_surface.get_rect(center=(pixel_width // 2, pixel_height // 4 + 100))
-    screen.blit(start_surface, start_rect)
-    AI_surface = game_font.render('AI play', True, hoverA)
-    AI_rect = AI_surface.get_rect(center=(pixel_width // 2, pixel_height // 4 + 150))
-    screen.blit(AI_surface, AI_rect)
-    exit_surface = game_font.render('Exit', True, hovere)
-    exit_rect = exit_surface.get_rect(center=(pixel_width // 2, pixel_height // 4 + 200))
-    screen.blit(exit_surface, exit_rect)
+class Generation_Board():
+    def __init__(self, gen_cols, gen_rows, b_cols, b_rows):
+        self.boards = np.empty((gen_rows, gen_cols), dtype = object)
+        for x in range(0, gen_cols):
+            for y in range(0, gen_rows):
+                self.boards[x, y] = Board((b_rows, b_cols))
+        self.live = np.full((gen_rows, gen_cols), True)
+        self.gen_still_exist = True
+        self.fitness = np.full((gen_rows, gen_cols), 0)
 
-def show_gameover(score):
-    global menu_rect
-    gameover_surface = game_font.render('GameOver!', True, (200, 200, 200))
-    gameover_rect = gameover_surface.get_rect(center = (pixel_width // 2, pixel_height // 4))
-    screen.blit(gameover_surface, gameover_rect)
+    def step(self):
+        count = 0
+        for x in range(0, gen_width):
+            for y in range(0, gen_height):
+                if self.live[x, y]:
+                    count += 1
+                    E_board = self.boards[x, y]
+                    if not E_board.get_apple_exist():
+                        E_board.Grow_Apple()
+                    game_active, ate = E_board.step(E_board.get_apple_pos())
+                    if not game_active:
+                        self.live[x, y] = False
+                    if ate:
+                        E_board.Ate_T_Apple()
+                        self.fitness_calc(x, y)
+        if count == 0:
+            self.gen_still_exist = False
 
-    score_surface = game_font.render(f'Score: {int(score)}' ,True,(200, 200, 200))
-    score_rect = score_surface.get_rect(center = (pixel_width // 2, pixel_height // 4 + 100))
-    screen.blit(score_surface,score_rect)
+    def fitness_calc(self, x, y):
+        self.fitness[x, y] += 1
 
-    menu_surface = game_font.render('Menu' ,True,hoverm)
-    menu_rect = menu_surface.get_rect(center = (pixel_width // 2, pixel_height // 4 + 150))
-    screen.blit(menu_surface,menu_rect)
-
+    def update_board(self):
+        for x in range(0, gen_width):
+            for y in range(0, gen_height):
+                self.boards[x, y].update_board()
 
 
 
 '''PyGame LOOP'''
 
-score = 0
-bg_surface = Create_BG(background_images, background_ratios)
-E_board = Board((b_height, b_width))
-gameStatus = 'menu'# options - menu, game, gameover
-gameActive = False
+BackGround_AI_surface = Create_Gen_Background(Create_BG(background_images, background_ratios))
+generation_board = Generation_Board(gen_width, gen_height, b_width, b_height)
+generation_board.update_board()
+genNum = 1 # options - menu, game, gameover
 MakeStep = False
+ticking = TICKING_game
 while True:
-    Ate = False
 
-    ''' Games Status Handler'''
-    board_surface = Draw_Board(E_board.get_board_array())
-    screen.blit(bg_surface, (0,0))
-    if gameStatus == 'gameover': show_gameover(score)
-    elif gameStatus == 'menu': show_menu(hovers, hoverA, hovere)
-
-    '''END'''
-    ''' Event Handler'''
+    screen.blit(BackGround_AI_surface, (0, 0))
+    Generation_AI_surface = Draw_Gen_Board(generation_board)
     for event in pg.event.get():
         if event.type == pg.QUIT:
-            QUIT_snake()
-        if event.type == pg.KEYDOWN and event.key == pg.K_ESCAPE:
-            QUIT_snake()
-        mousePos = pg.mouse.get_pos()
-        if gameStatus == 'game':
-            if event.type == pg.KEYDOWN:
-                if event.key == pygame.K_UP:
-                    E_board.C_dir('u')
-                if event.key == pg.K_DOWN:
-                    E_board.C_dir('d')
-                if event.key == pg.K_RIGHT:
-                    E_board.C_dir('r')
-                if event.key == pg.K_LEFT:
-                    E_board.C_dir('l')
-            # Single Player Mode
-            if not E_board.get_apple_exist():
-                E_board.Grow_Apple()
-            if event.type == STEPEVENT:
-                gameActive, Ate = E_board.step(E_board.get_apple_pos())
-            if not gameActive:
-                gameStatus = 'gameover'
-                ticking = TICKING_menus
-            if Ate:
-                E_board.Ate_T_Apple()
-                score += 1
-            E_board.update_board()
+            sys.exit()
+            pg.quit()
+        if event.type == STEPEVENT:
+            generation_board.step()
+        generation_board.update_board()
 
-        elif gameStatus == 'gameover':
-            #show_gameover(score)
-            if menu_rect.collidepoint(mousePos):
-                # Handle the Menu button
-                hoverm = (150, 150, 150)
-            else:
-                hoverm = (200, 200, 200)
-            if event.type == pg.MOUSEBUTTONDOWN and event.button == 1:
-                if menu_rect.collidepoint(mousePos):
-                    gameStatus = 'menu'
-
-        elif gameStatus == 'menu':
-            #show_menu(hovers, hoverA, hovere)
-            # Handle the menu mode
-            if exit_rect.collidepoint(mousePos):
-                # Handle the Exit button
-                hovere = (150, 150, 150)
-            else:
-                hovere = (200, 200, 200)
-            if event.type == pg.MOUSEBUTTONDOWN and event.button == 1:
-                if exit_rect.collidepoint(mousePos):
-                    QUIT_snake()
-
-            if start_rect.collidepoint(mousePos):
-                # Handle the Start Button
-                hovers = (150, 150, 150)
-            else:
-                hovers = (200, 200, 200)
-            if event.type == pg.MOUSEBUTTONDOWN and event.button == 1:
-                if start_rect.collidepoint(mousePos):
-                    gameStatus = 'game'
-                    gameActive = True
-                    ticking = TICKING_game
-                    score = 0
-                    E_board = Board((b_height, b_width))
-
-            if AI_rect.collidepoint(mousePos):
-                # Handle the AI button
-                hoverA = (150, 150, 150)
-            else:
-                hoverA = (200, 200, 200)
-            if event.type == pg.MOUSEBUTTONDOWN and event.button == 1:
-                if AI_rect.collidepoint(mousePos):
-                    QUIT_snake()
-
-    '''END'''
-
-    screen.blit(board_surface, (0, 0))
+    screen.blit(Generation_AI_surface, (0, 0))
     pg.display.update()
-    clock.tick(ticking)
+    clock.tick(30)
