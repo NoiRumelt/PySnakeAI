@@ -1,9 +1,12 @@
 from PIL import Image
 import numpy as np
 import sys
+from typing import Optional, Union, List
 import pygame as pg
 from Assets_AI import *
 from random import choices, randrange
+from NeuralNetwork import *
+
 '''PyGame Init'''
 pg.init()
 screen = pg.display.set_mode((dimensions))
@@ -15,6 +18,7 @@ pg.time.set_timer(STEPEVENT, SPEED)
 from Images_AI import *
 
 
+
 class Snake:
 
     def __init__(self, row, col):
@@ -22,14 +26,30 @@ class Snake:
         self.Direction = np.array([-1,0])   # The options are: 'u' - Up, 'd' - Down, 'l' - Left, 'r' - Right
         self.Direction_char = 'u'
         self.Direction_wait = 'u'
+        self.Head_dir_vector = Dir_vector_lib['u']
+        self.Tail_dir_vector = Dir_vector_lib['u']
         self.length = 2
+        self.steps_made = 0
+        self._fitness = 0
         self.Dir_tra = {'u': np.array([-1, 0]), 'l': np.array([0, -1]), 'd': np.array([1, 0]), 'r': np.array([0, 1])}
+        self.possible_directions = ('u', 'l', 'd', 'r')
 
     def __repr__(self):
         return self.Pos, self.Direction
 
     def __len__(self):
         return self.length
+
+    def calculate_fitness(self):
+        # Give positive minimum fitness for roulette wheel selection
+        score = self.length - 2
+        self._fitness = (self.steps_made) + ((2 ** score) + (score ** 2.1) * 500) - (
+                    ((.25 * self.steps_made) ** 1.3) * (score ** 1.2))
+        self._fitness = max(self._fitness, .1)
+        return self._fitness
+
+    def get_fitness(self):
+        return self._fitness
 
     def step(self, Apple_pos):
         # No Input, taking the current position of the snake and the current direction of it, and change the 2D array,
@@ -53,6 +73,7 @@ class Snake:
             self.Pos.append(last)
             self.length += 1
             return True, True
+        self.steps_made += 1
         return True, False
     def Col_W_Wall(self):
         return b_height <= self.Pos[0][0] + self.Direction[0] or \
@@ -75,15 +96,31 @@ class Snake:
         # 20 - 'Head Up', 21 - 'Head Down', 22 - 'Head Left', 23 - 'Head Right'
         # 30 - 'Tail Up', 31 - 'Tail Down', 32 - 'Tail Left', 33 - 'Tail Right'
         if part == 0:
-            if self.Direction_char == 'u': return 20
-            if self.Direction_char == 'd': return 21
-            if self.Direction_char == 'l': return 22
-            if self.Direction_char == 'r': return 23
+            if self.Direction_char == 'u':
+                self.Head_dir_vector = Dir_vector_lib['u']  # up
+                return 20
+            if self.Direction_char == 'd':
+                self.Head_dir_vector = Dir_vector_lib['d']  # down
+                return 21
+            if self.Direction_char == 'l':
+                self.Head_dir_vector = Dir_vector_lib['l']  # left
+                return 22
+            if self.Direction_char == 'r':
+                self.Head_dir_vector = Dir_vector_lib['d']  # down
+                return 23
         elif part == self.length - 1:
-            if (self.Pos[part] == (self.Pos[part - 1] + self.Dir_tra['u'])).all(): return 31
-            if (self.Pos[part] == (self.Pos[part - 1] + self.Dir_tra['d'])).all(): return 30
-            if (self.Pos[part] == (self.Pos[part - 1] + self.Dir_tra['l'])).all(): return 33
-            if (self.Pos[part] == (self.Pos[part - 1] + self.Dir_tra['r'])).all(): return 32
+            if (self.Pos[part] == (self.Pos[part - 1] + self.Dir_tra['u'])).all():
+                self.Tail_dir_vector = Dir_vector_lib['d']  # down
+                return 31
+            if (self.Pos[part] == (self.Pos[part - 1] + self.Dir_tra['d'])).all():
+                self.Tail_dir_vector = Dir_vector_lib['u']  # up
+                return 30
+            if (self.Pos[part] == (self.Pos[part - 1] + self.Dir_tra['l'])).all():
+                self.Tail_dir_vector = Dir_vector_lib['r']  # right
+                return 33
+            if (self.Pos[part] == (self.Pos[part - 1] + self.Dir_tra['r'])).all():
+                self.Tail_dir_vector = Dir_vector_lib['l']  # left
+                return 32
         else:
             if (self.Pos[part] == self.Pos[part - 1] + self.Dir_tra['d']).all() or \
                     (self.Pos[part] == self.Pos[part + 1] + self.Dir_tra['d']).all():
@@ -137,6 +174,8 @@ class Apple():
     def get_pos(self):
         return self.Pos[0], self.Pos[1]
 
+
+
 class Board:
     def __init__(self, dim):
         # Creating a 2D array represent the snake and the apple
@@ -144,6 +183,9 @@ class Board:
         self.board_array = np.full((self.rows, self.columns), 0)
         self.E_snake = Snake(self.rows, self.columns)
         self.apple = Apple(self.columns, self.rows, self.E_snake.Pos)
+        self.NN_array = np.full((self.rows, self.columns), 0)
+        self.vision: List[Vision] = [None] * 8
+        self.vision_nn_array: np.ndarray = np.zeros((32, 1))
 
     def get_board_array(self):
         # returning a 2D numpy array which illustrate the current condition of the board: snake, apples, etc...
@@ -158,9 +200,106 @@ class Board:
         self.board_array = np.full((self.rows, self.columns), 0)
         for part in range(0, len(self.E_snake)):
             self.board_array[self.E_snake.get_pos_part(part)] = self.E_snake.get_part_identity(part)
+            self.NN_array[self.E_snake.get_pos_part(part)] = 1
 
-        if self.apple != None: # Writes 1 on the board on the position of the apple
+        if self.apple is not None: # Writes 1 on the board on the position of the apple
             self.board_array[self.apple.get_pos()] = 1
+            self.NN_array[self.apple.get_pos()] = 2
+
+    def get_vision_vector(self):
+        return self.vision_nn_array
+
+    def calc_vision_vector(self):
+        # Split _vision into np array where rows [0-2] are _vision[0].dist_to_wall, _vision[0].dist_to_apple, _vision[0].dist_to_self,
+        # rows [3-5] are _vision[1].dist_to_wall, _vision[1].dist_to_apple, _vision[1].dist_to_self, etc. etc. etc.
+        for va_index, v_index in zip(range(0, 8 * 3, 3), range(8)):
+            vision = self.vision[v_index]
+            self.vision_nn_array[va_index, 0] = vision.dist_to_wall
+            self.vision_nn_array[va_index + 1, 0] = vision.dist_to_apple
+            self.vision_nn_array[va_index + 2, 0] = vision.dist_to_self
+
+        i = 24  # Start at the end
+
+        head_direction = self.E_snake.Head_dir_vector
+        # One-hot encode direction
+        self.vision_nn_array[i: i + 4] = head_direction
+
+        i += 4
+
+        # One-hot tail direction
+        head_direction = self.E_snake.Tail_dir_vector
+        self.vision_nn_array[i: i + 4] = head_direction
+
+    def look(self):
+        # Look all around
+        for i, slope in enumerate(VISION_8):
+
+            dir_i_vision = self.look_in_direction(slope)
+            self.vision[i] = dir_i_vision
+            #print(i, slope.rise, slope.run)
+            #print(dir_i_vision.dist_to_wall,dir_i_vision.dist_to_apple,dir_i_vision.dist_to_self)
+
+        # Update the input array
+        self.calc_vision_vector()
+
+    def _within_wall(self, position) -> bool:
+        return 0 <= position[0] < self.rows and 0 <= position[1] < self.columns
+
+    def _is_body_location(self, position) -> bool:
+        for i in range(len(self.E_snake)):
+            if (position == self.E_snake.get_pos_part(i)).all():
+                return True
+        return False
+
+
+    def _is_apple_location(self, position) -> bool:
+        return (position == self.apple.Pos).all()
+
+    def look_in_direction(self, slope: Slope):
+        dist_to_wall = None
+        dist_to_apple = np.inf
+        dist_to_self = np.inf
+
+        wall_location = None
+        apple_location = None
+        self_location = None
+
+        position = np.copy(self.E_snake.get_pos_part(0))
+        #print (position)
+        distance = 1.0
+        total_distance = 0.0
+
+        # Can't start by looking at yourself
+        position[1] += slope.run
+        position[0] += slope.rise
+        total_distance += distance
+        body_found = False  # Only need to find the first occurance since it's the closest
+        food_found = False  # Although there is only one food, stop looking once you find it
+
+        # Keep going until the position is out of bounds
+        while self._within_wall(position):
+
+            if not body_found and self._is_body_location(position):
+                dist_to_self = total_distance
+                self_location = np.copy(position)
+                body_found = True
+            if not food_found and self._is_apple_location(position):
+                dist_to_apple = total_distance
+                apple_location = np.copy(position)
+                food_found = True
+
+            wall_location = position
+            position[1] += slope.run
+            position[0] += slope.rise
+            total_distance += distance
+        assert (total_distance != 0.0)
+
+        dist_to_wall = 1.0 / total_distance
+        dist_to_apple = 1.0 if dist_to_apple != np.inf else 0.0
+        dist_to_self = 1.0 if dist_to_self != np.inf else 0.0
+
+        vision = Vision(dist_to_wall, dist_to_apple, dist_to_self)
+        return vision
 
     def step(self, apple):
         return self.E_snake.step(apple)
@@ -196,15 +335,15 @@ def Draw_Gen_Board(gen_board):
     gen_board_surface = pg.Surface(((b_width * block_s * gen_width) + (gen_width - 1) * 5,
                                  (b_height * block_s * gen_height) + (gen_height - 1) * 5), pg.SRCALPHA).convert_alpha()
     x_o, y_o = 0, 0
-    for x in range(0, gen_width):
-        y_o = 0
-        for y in range(0, gen_height):
-            gen_board_surface.blit(Draw_Board(gen_board.boards[x, y].get_board_array()), (x_o,y_o))
-            y_o = y_o + b_height * block_s
-            y_o += 5
-        x_o = x_o + b_width * block_s
-        if x < gen_width - 1:
+    for r in range(0, gen_height):
+        x_o = 0
+        for c in range(0, gen_width):
+            gen_board_surface.blit(Draw_Board(gen_board.boards[r, c].get_board_array()), (x_o,y_o))
+            x_o = x_o + b_width * block_s
             x_o += 5
+        y_o = y_o + b_height * block_s
+        if r < gen_height - 1:
+            y_o += 5
     return gen_board_surface
 
 
@@ -241,39 +380,61 @@ def QUIT_snake():
 
 class Generation_Board():
     def __init__(self, gen_cols, gen_rows, b_cols, b_rows):
-        self.boards = np.empty((gen_rows, gen_cols), dtype = object)
-        for x in range(0, gen_cols):
-            for y in range(0, gen_rows):
-                self.boards[x, y] = Board((b_rows, b_cols))
+        self.boards = np.empty((gen_rows, gen_cols), dtype=object)
+        self.models = np.empty((gen_rows, gen_cols), dtype=object)
+        self.possible_directions = ('u', 'd', 'l', 'r')
+        for c in range(0, gen_cols):
+            for r in range(0, gen_rows):
+                self.boards[r, c] = Board((b_rows, b_cols))
+                self.models[r, c] = create_model()
         self.live = np.full((gen_rows, gen_cols), True)
-        self.gen_still_exist = True
+        self.gen_still_alive = True
         self.fitness = np.full((gen_rows, gen_cols), 0)
 
     def step(self):
         count = 0
-        for x in range(0, gen_width):
-            for y in range(0, gen_height):
-                if self.live[x, y]:
-                    count += 1
-                    E_board = self.boards[x, y]
+        for r in range(0, gen_width):
+            for c in range(0, gen_height):
+                if self.live[r, c]:
+                    E_board = self.boards[r, c]
                     if not E_board.get_apple_exist():
                         E_board.Grow_Apple()
+                    E_board.look()
+                    nn_rec_dir = predict_action(E_board.vision_nn_array, self.models[r, c])
+                    nn_rec_dir = self.possible_directions[np.argmax(nn_rec_dir)]
+                    E_board.C_dir(nn_rec_dir)
+                    count += 1
                     game_active, ate = E_board.step(E_board.get_apple_pos())
                     if not game_active:
-                        self.live[x, y] = False
+                        self.live[r, c] = False
                     if ate:
                         E_board.Ate_T_Apple()
-                        self.fitness_calc(x, y)
         if count == 0:
-            self.gen_still_exist = False
+            self.gen_still_alive = False
 
-    def fitness_calc(self, x, y):
-        self.fitness[x, y] += 1
 
     def update_board(self):
-        for x in range(0, gen_width):
-            for y in range(0, gen_height):
-                self.boards[x, y].update_board()
+        for r in range(0, gen_width):
+            for c in range(0, gen_height):
+                self.boards[r, c].update_board()
+
+    def calc_gen_fitness(self):
+        for r in range(0, gen_width):
+            for c in range(0, gen_height):
+                e_board = self.boards[r, c]
+                self.fitness[r, c] = e_board.E_snake.calculate_fitness()
+
+
+def create_new_gen(generation: Generation_Board) -> Generation_Board:
+
+    fitness_array = generation.fitness
+    chosen_parents = [None, None, None, None]
+
+    for i in range(4):
+        result = np.where(fitness_array == np.amax(fitness_array))
+        position_of_max_fitness = (result[0][0], result[1][0])
+        chosen_parents[i] = generation.models[position_of_max_fitness]
+        fitness_array[result[0][0], result[1][0]] = 0
 
 
 
@@ -294,7 +455,16 @@ while True:
             sys.exit()
             pg.quit()
         if event.type == STEPEVENT:
-            generation_board.step()
+            if generation_board.gen_still_alive:
+                generation_board.step()
+            else:
+                generation_board.calc_gen_fitness()
+                #print(generation_board.fitness)
+                #generation_board = create_new_gen(generation_board)
+
+
+
+
         generation_board.update_board()
 
     screen.blit(Generation_AI_surface, (0, 0))
